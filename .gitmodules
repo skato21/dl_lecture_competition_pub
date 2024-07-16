@@ -1,0 +1,3 @@
+[submodule "dl_lecture_competition_pub"]
+	path = dl_lecture_competition_pub
+	url = https://github.com/skato21/dl_lecture_competition_pub.git
