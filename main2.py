@@ -27,62 +27,22 @@ def run(args: DictConfig):
     # ------------------
     loader_args = {"batch_size": args.batch_size, "num_workers": args.num_workers}
     
-    #train_set = ThingsMEGDataset("train", args.data_dir)
-    train_set = ThingsMEGDataset("train", data_dir="data", resample_rate=100, filter_params={'order': 5, 'cutoff': 0.3, 'btype': 'low'}, scaling=True, baseline_correction=50)
-    
-    val_set = ThingsMEGDataset("val", data_dir="data", resample_rate=100, filter_params={'order': 5, 'cutoff': 0.3, 'btype': 'low'}, scaling=True, baseline_correction=50)
-    
-    test_set = ThingsMEGDataset("test", data_dir="data", resample_rate=100, filter_params={'order': 5, 'cutoff': 0.3, 'btype': 'low'}, scaling=True, baseline_correction=50)
-
-    
-    def collate_fn(batch):
-        X_batch = torch.stack([item[0].float() for item in batch])
-        y_batch = torch.tensor([item[1].long() for item in batch]) if batch[0][1] is not None else None
-        subject_idxs_batch = torch.tensor([item[2] for item in batch])
-        return X_batch, y_batch, subject_idxs_batch
-    
-    def collate_fn_test(batch):
-        X_batch = torch.stack([item[0].float() for item in batch])
-        subject_idxs_batch = torch.tensor([item[1] for item in batch])
-        return X_batch, subject_idxs_batch
-
-    train_loader = torch.utils.data.DataLoader(
-        train_set, 
-        batch_size=args.batch_size, 
-        shuffle=True,
-        num_workers=args.num_workers,
-        collate_fn=collate_fn
-    )
-
-    val_loader = torch.utils.data.DataLoader(
-        val_set, 
-        batch_size=args.batch_size, 
-        shuffle=False, 
-        num_workers=args.num_workers,
-        collate_fn=collate_fn
-    )
-
+    train_set = ThingsMEGDataset("train", args.data_dir)
+    train_loader = torch.utils.data.DataLoader(train_set, shuffle=True, **loader_args)
+    val_set = ThingsMEGDataset("val", args.data_dir)
+    val_loader = torch.utils.data.DataLoader(val_set, shuffle=False, **loader_args)
+    test_set = ThingsMEGDataset("test", args.data_dir)
     test_loader = torch.utils.data.DataLoader(
-        test_set, 
-        batch_size=args.batch_size, 
-        shuffle=False, 
-        num_workers=args.num_workers,
-        collate_fn=collate_fn_test
+        test_set, shuffle=False, batch_size=args.batch_size, num_workers=args.num_workers
     )
-
 
     # ------------------
     #       Model
     # ------------------
     model = BasicConvClassifier(
-        num_classes=train_set.num_classes,
-        seq_len=train_set.seq_len,
-        in_channels=train_set.num_channels,
-        hid_dim=128,
-        p_drop=0.5,
-        weight_decay=1e-4
+        train_set.num_classes, train_set.seq_len, train_set.num_channels
     ).to(args.device)
-    
+
     # ------------------
     #     Optimizer
     # ------------------
@@ -106,10 +66,10 @@ def run(args: DictConfig):
             X, y = X.to(args.device), y.to(args.device)
 
             y_pred = model(X)
-
-            loss = F.cross_entropy(y_pred, y) + model.apply_l2_regularization()
+            
+            loss = F.cross_entropy(y_pred, y)
             train_loss.append(loss.item())
-
+            
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -128,8 +88,7 @@ def run(args: DictConfig):
             val_acc.append(accuracy(y_pred, y).item())
 
         print(f"Epoch {epoch+1}/{args.epochs} | train loss: {np.mean(train_loss):.3f} | train acc: {np.mean(train_acc):.3f} | val loss: {np.mean(val_loss):.3f} | val acc: {np.mean(val_acc):.3f}")
-        torch.save(model.cpu().state_dict(), os.path.join(logdir, "model_last.pt"))
-        model.to(args.device)  
+        torch.save(model.state_dict(), os.path.join(logdir, "model_last.pt"))
         if args.use_wandb:
             wandb.log({"train_loss": np.mean(train_loss), "train_acc": np.mean(train_acc), "val_loss": np.mean(val_loss), "val_acc": np.mean(val_acc)})
         
@@ -152,7 +111,6 @@ def run(args: DictConfig):
     preds = torch.cat(preds, dim=0).numpy()
     np.save(os.path.join(logdir, "submission"), preds)
     cprint(f"Submission {preds.shape} saved at {logdir}", "cyan")
-
 
 
 if __name__ == "__main__":
